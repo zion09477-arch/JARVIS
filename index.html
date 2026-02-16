@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>JARVIS Web Assistant</title>
+    <style>
+        /* Your existing styles */
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>JARVIS Web Assistant</h1>
+        <div class="subtitle">Your AI-Powered Voice Assistant</div>
+        
+        <div class="status-circle" id="statusCircle">
+            <i class="fas fa-microphone"></i>
+        </div>
+        
+        <div class="button-container">
+            <button class="btn btn-primary" id="startBtn">
+                <i class="fas fa-play"></i> Start Listening
+            </button>
+            <button class="btn btn-secondary" id="stopBtn" disabled>
+                <i class="fas fa-stop"></i> Stop
+            </button>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing your command...</p>
+        </div>
+        
+        <div class="chat-container" id="chatContainer"></div>
+    </div>
+    
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const statusCircle = document.getElementById('statusCircle');
+        const loading = document.getElementById('loading');
+        const chatContainer = document.getElementById('chatContainer');
+        
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        
+        // Browser speech synthesis
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.rate = 1;
+                utterance.pitch = 1;
+                utterance.volume = 1;
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+        
+        startBtn.addEventListener('click', startRecording);
+        stopBtn.addEventListener('click', stopRecording);
+        
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = sendAudioToServer;
+                
+                mediaRecorder.start();
+                isRecording = true;
+                
+                statusCircle.classList.add('listening');
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                
+                addMessage('system', '🎤 Listening... Click Stop when done.');
+                
+            } catch (err) {
+                alert('Error accessing microphone: ' + err.message);
+            }
+        }
+        
+        function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                isRecording = false;
+                
+                statusCircle.classList.remove('listening');
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                
+                loading.classList.add('active');
+            }
+        }
+        
+        async function sendAudioToServer() {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'recording.webm');
+            
+            try {
+                const response = await fetch('/process_audio', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                loading.classList.remove('active');
+                
+                if (data.success) {
+                    addMessage('user', data.command);
+                    addMessage('jarvis', data.response);
+                    
+                    // Speak the response in browser
+                    if (data.response !== "OPEN_YOUTUBE") {
+                        speak(data.response);
+                    } else {
+                        window.open('https://youtube.com', '_blank');
+                        speak("Opening YouTube");
+                    }
+                } else {
+                    addMessage('error', data.error || 'Something went wrong');
+                }
+                
+            } catch (err) {
+                loading.classList.remove('active');
+                addMessage('error', 'Failed to connect to server');
+            }
+        }
+        
+        function addMessage(type, text) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+            
+            const textDiv = document.createElement('div');
+            textDiv.className = 'message-text';
+            textDiv.textContent = text;
+            
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'message-time';
+            timeDiv.textContent = new Date().toLocaleTimeString();
+            
+            messageDiv.appendChild(textDiv);
+            messageDiv.appendChild(timeDiv);
+            chatContainer.appendChild(messageDiv);
+            
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
